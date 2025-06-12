@@ -5,7 +5,8 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { 
   User, Building2, Calendar, TrendingUp, AlertTriangle, 
-  FileText, Share2, Download, Users, Briefcase, MapPin 
+  FileText, Share2, Download, Users, Briefcase, MapPin,
+  RefreshCw, Database
 } from 'lucide-react'
 import { 
   PieChart, Pie, Cell, BarChart, Bar, LineChart, Line,
@@ -13,6 +14,10 @@ import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
 } from 'recharts'
 import { NetworkGraph } from '@/components/NetworkGraph'
+import { useDeputadoFirestore } from '@/hooks/use-firestore-data'
+import { useFirestore } from '@/contexts/FirestoreContext'
+import { FirestoreStatus } from '@/components/FirestoreStatus'
+import { firestoreService } from '@/services/firestore-service'
 
 interface PerfilDeputadoProps {
   deputado?: any
@@ -21,49 +26,115 @@ interface PerfilDeputadoProps {
 export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
   const [activeTab, setActiveTab] = useState('visao-geral')
   const [deputadoData, setDeputadoData] = useState<any>(null)
+  const [despesasDetalhadas, setDespesasDetalhadas] = useState<any[]>([])
+  const [loadingDespesas, setLoadingDespesas] = useState(false)
+  
+  // Usar contexto do Firestore
+  const { data: firestoreData, isConnected } = useFirestore();
+  
+  // Buscar despesas detalhadas do deputado
+  const buscarDespesasDeputado = async (deputadoId: string) => {
+    setLoadingDespesas(true);
+    try {
+      const ano = new Date().getFullYear();
+      const despesas = await firestoreService.buscarDespesasDeputado(
+        deputadoId,
+        ano,
+        'todos'
+      );
+      setDespesasDetalhadas(despesas);
+    } catch (error) {
+      console.error('Erro ao buscar despesas:', error);
+    } finally {
+      setLoadingDespesas(false);
+    }
+  };
 
   useEffect(() => {
     if (deputado) {
       // Usar dados do deputado selecionado
       setDeputadoData({
+        id: deputado.id || deputado.ideCadastro,
         nome: deputado.nome,
         partido: deputado.partido,
         uf: deputado.uf,
-        foto: `https://www.camara.leg.br/internet/deputado/bandep/220611.jpg`,
+        foto: deputado.urlFoto || `https://www.camara.leg.br/internet/deputado/bandep/${deputado.id || '220611'}.jpg`,
         mandatos: "2023-2027",
-        comissoes: ["Saúde", "Defesa Nacional"],
+        comissoes: deputado.comissoes || ["Comissões não informadas"],
         totalGasto: deputado.totalGasto,
         scoreSuspeicao: deputado.scoreSuspeicao,
-        numAlertas: deputado.alertas.length,
-        ranking: Math.floor(Math.random() * 513) + 1,
-        email: `dep.${deputado.nome.toLowerCase().replace(/\s+/g, '.')}@camara.leg.br`,
-        telefone: "(61) 3215-5XXX"
-      })
-    } else {
-      // Dados padrão se nenhum deputado for selecionado
+        numAlertas: deputado.alertas?.length || 0,
+        ranking: deputado.ranking || Math.floor(Math.random() * 513) + 1,
+        email: deputado.email || `dep.${deputado.nome.toLowerCase().replace(/\s+/g, '.')}@camara.leg.br`,
+        telefone: deputado.telefone || "(61) 3215-5XXX"
+      });
+      
+      // Buscar despesas detalhadas se tiver ID
+      if (deputado.id || deputado.ideCadastro) {
+        buscarDespesasDeputado(deputado.id || deputado.ideCadastro);
+      }
+    } else if (firestoreData?.analise?.deputadosAnalise?.length > 0) {
+      // Usar primeiro deputado do Firestore como exemplo
+      const primeiroDeputado = firestoreData.analise.deputadosAnalise[0];
       setDeputadoData({
-        nome: "General Pazuello",
-        partido: "PL",
-        uf: "RJ",
-        foto: "https://www.camara.leg.br/internet/deputado/bandep/220611.jpg",
+        id: primeiroDeputado.id || primeiroDeputado.ideCadastro,
+        nome: primeiroDeputado.nome,
+        partido: primeiroDeputado.partido,
+        uf: primeiroDeputado.uf,
+        foto: `https://www.camara.leg.br/internet/deputado/bandep/220611.jpg`,
         mandatos: "2023-2027",
-        comissoes: ["Saúde", "Defesa Nacional"],
-        totalGasto: 49131.34,
-        scoreSuspeicao: 25,
-        numAlertas: 2,
-        ranking: 145,
-        email: "dep.generalpazuello@camara.leg.br",
+        comissoes: ["Comissões não informadas"],
+        totalGasto: primeiroDeputado.totalGasto,
+        scoreSuspeicao: primeiroDeputado.scoreSuspeicao,
+        numAlertas: primeiroDeputado.alertas?.length || 0,
+        ranking: 1,
+        email: `dep.${primeiroDeputado.nome.toLowerCase().replace(/\s+/g, '.')}@camara.leg.br`,
         telefone: "(61) 3215-5XXX"
-      })
+      });
     }
-  }, [deputado])
+  }, [deputado, firestoreData])
 
   if (!deputadoData) {
-    return <div>Carregando...</div>
+    return (
+      <div className="flex items-center justify-center p-8">
+        <FirestoreStatus loading={true} />
+      </div>
+    )
   }
 
-  // Usar as categorias do deputado se disponível
-  const gastosCategoria = deputado?.maioresCategorias?.map((cat: any) => ({
+  // Processar despesas detalhadas para gerar categorias
+  const processarDespesasPorCategoria = () => {
+    if (despesasDetalhadas.length === 0) {
+      return deputado?.maioresCategorias?.map((cat: any) => ({
+        categoria: cat.categoria,
+        valor: cat.valor,
+        percentual: cat.percentual
+      })) || [];
+    }
+    
+    // Agrupar despesas por tipo
+    const categorias: Record<string, number> = {};
+    let totalGeral = 0;
+    
+    despesasDetalhadas.forEach((despesa: any) => {
+      const tipo = despesa.tipoDespesa || 'Outros';
+      const valor = parseFloat(despesa.valorLiquido || despesa.valorDocumento || 0);
+      categorias[tipo] = (categorias[tipo] || 0) + valor;
+      totalGeral += valor;
+    });
+    
+    // Converter para array e calcular percentuais
+    return Object.entries(categorias)
+      .map(([categoria, valor]) => ({
+        categoria: categoria.substring(0, 30),
+        valor,
+        percentual: ((valor / totalGeral) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 7);
+  };
+  
+  const gastosCategoria = processarDespesasPorCategoria() || deputado?.maioresCategorias?.map((cat: any) => ({
     categoria: cat.categoria,
     valor: cat.valor,
     percentual: cat.percentual
@@ -139,6 +210,15 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
 
   return (
     <div className="space-y-6">
+      {/* Status da Conexão */}
+      <div className="flex justify-end mb-4">
+        <FirestoreStatus 
+          showConnectionStatus 
+          isConnected={isConnected}
+          dataSource={localStorage.getItem('fonte-dados') as 'firestore' | 'cache'}
+        />
+      </div>
+      
       {/* Header do Perfil */}
       <div className="bg-gradient-to-r from-primary to-primary/80 text-white rounded-lg p-6">
         <div className="flex items-start justify-between">
@@ -289,7 +369,7 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
           <TabsTrigger value="comparativo">Comparativo</TabsTrigger>
           <TabsTrigger value="relacoes">Relações</TabsTrigger>
         </TabsList>
-
+        <>
         {/* Visão Geral */}
         <TabsContent value="visao-geral" className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -299,6 +379,11 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
                 <CardDescription>Análise detalhada dos gastos</CardDescription>
               </CardHeader>
               <CardContent>
+              {loadingDespesas ? (
+              <div className="flex items-center justify-center h-[300px]">
+                  <FirestoreStatus loading={true} />
+                </div>
+              ) : (
                 <ResponsiveContainer width="100%" height="300">
                   <PieChart>
                     <Pie
@@ -318,14 +403,22 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
                     <Tooltip formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} />
                     <Legend />
                   </PieChart>
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
                 <CardTitle>Detalhamento de Despesas</CardTitle>
-                <CardDescription>Principais categorias de gastos</CardDescription>
+                <CardDescription>
+                  Principais categorias de gastos
+                  {despesasDetalhadas.length > 0 && (
+                    <span className="ml-2 text-xs">
+                      ({despesasDetalhadas.length} transações)
+                    </span>
+                  )}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -354,7 +447,66 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
 
         {/* Fornecedores */}
         <TabsContent value="fornecedores" className="space-y-4">
-          <Card>
+          {despesasDetalhadas.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Fornecedores Reais</CardTitle>
+                <CardDescription>Baseado em {despesasDetalhadas.length} transações do Firestore</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {(() => {
+                    // Agrupar por fornecedor
+                    const fornecedoresMap: Record<string, { valor: number; count: number }> = {};
+                    
+                    despesasDetalhadas.forEach((despesa: any) => {
+                      const fornecedor = despesa.nomeFornecedor || 'Não informado';
+                      const valor = parseFloat(despesa.valorLiquido || despesa.valorDocumento || 0);
+                      
+                      if (!fornecedoresMap[fornecedor]) {
+                        fornecedoresMap[fornecedor] = { valor: 0, count: 0 };
+                      }
+                      
+                      fornecedoresMap[fornecedor].valor += valor;
+                      fornecedoresMap[fornecedor].count += 1;
+                    });
+                    
+                    // Converter para array e ordenar
+                    const fornecedoresOrdenados = Object.entries(fornecedoresMap)
+                      .map(([nome, dados]) => ({
+                        nome,
+                        valor: dados.valor,
+                        transacoes: dados.count
+                      }))
+                      .sort((a, b) => b.valor - a.valor)
+                      .slice(0, 10);
+                    
+                    return fornecedoresOrdenados.map((fornecedor, index) => (
+                      <div key={index} className="p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">{fornecedor.nome}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {fornecedor.transacoes} transações
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-lg">
+                              R$ {fornecedor.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </p>
+                            <Badge variant="outline" className="text-xs">
+                              Média: R$ {(fornecedor.valor / fornecedor.transacoes).toFixed(2)}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
             <CardHeader>
               <CardTitle>Principais Fornecedores</CardTitle>
               <CardDescription>Empresas que mais receberam pagamentos</CardDescription>
@@ -458,6 +610,7 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
             </CardContent>
           </Card>
         </TabsContent>
+        </>
       </Tabs>
 
       {/* Informações de Contato */}
