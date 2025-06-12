@@ -50,9 +50,12 @@ export interface FornecedorSuspeito {
   totalRecebido: number
   numTransacoes: number
   deputadosAtendidos: number
+  deputadosNomes?: string[] // Array com nomes dos deputados
   mediaTransacao: number
   indiceSuspeicao: number
   alertas: string[]
+  razoesSuspeita?: string[] // Alias para alertas
+  categorias?: string[] // Categorias de despesas atendidas
 }
 
 export interface AnaliseDeputado {

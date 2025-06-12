@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react'
-import { Building2, AlertTriangle, Search, Filter, Eye, Download, TrendingUp, Users } from 'lucide-react'
+import { Building2, AlertTriangle, Search, Filter, Eye, Download, TrendingUp, Users, RefreshCw, Database } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useFirestore } from '@/contexts/FirestoreContext'
+import { FirestoreStatus, EmptyDataPlaceholder } from '@/components/FirestoreStatus'
+import { TodosFornecedores } from '@/components/firestore/TodosFornecedores'
 import { 
   BarChart, 
   Bar, 
@@ -30,16 +33,36 @@ interface FornecedorSuspeito {
 }
 
 export function FornecedoresPage() {
+  // Integração com Firestore
+  const { data: firestoreData, loading: firestoreLoading, error, refetch, isConnected } = useFirestore()
+  
   const [fornecedores, setFornecedores] = useState<FornecedorSuspeito[]>([])
   const [fornecedoresFiltrados, setFornecedoresFiltrados] = useState<FornecedorSuspeito[]>([])
   const [busca, setBusca] = useState('')
   const [filtroScore, setFiltroScore] = useState<string>('todos')
   const [loading, setLoading] = useState(true)
+  const [mostrarTodos, setMostrarTodos] = useState(false)
 
   useEffect(() => {
-    // Carregar dados de exemplo ou do localStorage
-    carregarFornecedores()
-  }, [])
+    // Carregar dados do Firestore ou localStorage
+    if (firestoreData?.analise?.fornecedoresSuspeitos) {
+      // Converter dados do Firestore para o formato esperado
+      const fornecedoresConvertidos = firestoreData.analise.fornecedoresSuspeitos.map((forn: any) => ({
+        nome: forn.nome,
+        cnpj: forn.cnpj,
+        totalTransacionado: forn.totalRecebido,
+        deputadosAtendidos: forn.deputadosNomes || [],
+        scoreSuspeicao: forn.indiceSuspeicao,
+        alertas: forn.razoesSuspeita || [],
+        categorias: forn.categorias || ['Não especificado'],
+        transacoes: forn.numTransacoes || 0
+      }))
+      setFornecedores(fornecedoresConvertidos)
+      setLoading(false)
+    } else {
+      carregarFornecedores()
+    }
+  }, [firestoreData])
 
   useEffect(() => {
     // Aplicar filtros
@@ -229,13 +252,31 @@ export function FornecedoresPage() {
       : 0
   }
 
-  if (loading) {
+  if (loading || firestoreLoading) {
+    return <FirestoreStatus loading={true} />
+  }
+
+  if (error) {
+    return <FirestoreStatus error={error} onRetry={refetch} />
+  }
+
+  if (fornecedores.length === 0 && !firestoreData) {
     return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="text-center">
-          <Building2 className="h-12 w-12 animate-spin mx-auto mb-4 text-muted-foreground" />
-          <p>Carregando fornecedores...</p>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <Building2 className="h-8 w-8 text-blue-600" />
+            Fornecedores Suspeitos
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Análise de empresas com padrões suspeitos identificados
+          </p>
         </div>
+        <EmptyDataPlaceholder 
+          message="Nenhum fornecedor encontrado"
+          actionLabel="Buscar dados do Firestore"
+          onAction={refetch}
+        />
       </div>
     )
   }
@@ -253,10 +294,26 @@ export function FornecedoresPage() {
             Análise de empresas com padrões suspeitos identificados
           </p>
         </div>
-        <Button onClick={exportarFornecedores} variant="outline">
-          <Download className="h-4 w-4 mr-2" />
-          Exportar Dados
-        </Button>
+        <div className="flex items-center gap-2">
+          <FirestoreStatus 
+            showConnectionStatus 
+            isConnected={isConnected}
+            dataSource={localStorage.getItem('fonte-dados') as 'firestore' | 'cache'}
+          />
+          <Button 
+            onClick={refetch} 
+            variant="outline" 
+            size="sm"
+            disabled={firestoreLoading}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Atualizar
+          </Button>
+          <Button onClick={exportarFornecedores} variant="outline">
+            <Download className="h-4 w-4 mr-2" />
+            Exportar Dados
+          </Button>
+        </div>
       </div>
 
       {/* Estatísticas */}
@@ -312,41 +369,74 @@ export function FornecedoresPage() {
         </Card>
       </div>
 
-      {/* Filtros */}
+      {/* Opção de Visualização */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Filtros
-          </CardTitle>
+          <CardTitle>Modo de Visualização</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4 flex-wrap">
-            <div className="flex-1 min-w-64">
-              <Input
-                placeholder="Buscar por nome, CNPJ ou deputado..."
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                className="w-full"
-              />
-            </div>
-            <Select value={filtroScore} onValueChange={setFiltroScore}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Filtrar por score" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos os scores</SelectItem>
-                <SelectItem value="alto">Score Alto (≥70)</SelectItem>
-                <SelectItem value="medio">Score Médio (40-69)</SelectItem>
-                <SelectItem value="baixo">Score Baixo ({'<'}40)</SelectItem>
-              </SelectContent>
-            </Select>
-            <Badge variant="outline" className="flex items-center">
-              {fornecedoresFiltrados.length} resultado(s)
-            </Badge>
+          <div className="flex gap-2">
+            <Button
+              variant={!mostrarTodos ? "default" : "outline"}
+              onClick={() => setMostrarTodos(false)}
+            >
+              <AlertTriangle className="h-4 w-4 mr-2" />
+              Apenas Suspeitos ({fornecedores.filter(f => f.indiceSuspeicao > 0).length})
+            </Button>
+            <Button
+              variant={mostrarTodos ? "default" : "outline"}
+              onClick={() => setMostrarTodos(true)}
+            >
+              <Building2 className="h-4 w-4 mr-2" />
+              Todos os Fornecedores
+            </Button>
           </div>
         </CardContent>
       </Card>
+
+      {/* Mostrar Todos os Fornecedores se selecionado */}
+      {mostrarTodos ? (
+        <TodosFornecedores 
+          ano={new Date().getFullYear()}
+          mes="todos"
+        />
+      ) : (
+        <>
+          {/* Filtros */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="h-5 w-5" />
+                Filtros
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-4 flex-wrap">
+                <div className="flex-1 min-w-64">
+                  <Input
+                    placeholder="Buscar por nome, CNPJ ou deputado..."
+                    value={busca}
+                    onChange={(e) => setBusca(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+                <Select value={filtroScore} onValueChange={setFiltroScore}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="Filtrar por score" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os scores</SelectItem>
+                    <SelectItem value="alto">Score Alto (≥70)</SelectItem>
+                    <SelectItem value="medio">Score Médio (40-69)</SelectItem>
+                    <SelectItem value="baixo">Score Baixo ({'<'}40)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Badge variant="outline" className="flex items-center">
+                  {fornecedoresFiltrados.length} resultado(s)
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
 
       {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -432,13 +522,18 @@ export function FornecedoresPage() {
                       <div>
                         <p><strong>CNPJ:</strong> {fornecedor.cnpj}</p>
                         <p><strong>Volume Total:</strong> R$ {fornecedor.totalTransacionado.toLocaleString('pt-BR')}</p>
-                        <p><strong>Transações:</strong> {fornecedor.transacoes}</p>
+                        <p><strong>Transações:</strong> {fornecedor.transacoes || 'N/A'}</p>
                       </div>
                       <div>
                         <p><strong>Deputados Atendidos:</strong> {fornecedor.deputadosAtendidos.length}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {fornecedor.deputadosAtendidos.join(', ')}
-                        </p>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {fornecedor.deputadosAtendidos.length > 0 ? (
+                            fornecedor.deputadosAtendidos.slice(0, 5).join(', ') + 
+                            (fornecedor.deputadosAtendidos.length > 5 ? ` e mais ${fornecedor.deputadosAtendidos.length - 5}...` : '')
+                          ) : (
+                            'Nenhum deputado identificado'
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -497,6 +592,8 @@ export function FornecedoresPage() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   )
 }

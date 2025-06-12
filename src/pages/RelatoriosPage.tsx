@@ -2,32 +2,38 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { AlertCircle, FileText, Download, Printer } from 'lucide-react'
+import { AlertCircle, FileText, Download, Printer, RefreshCw, Database } from 'lucide-react'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { useFirestore } from '@/contexts/FirestoreContext'
+import { FirestoreStatus } from '@/components/FirestoreStatus'
+import { Badge } from '@/components/ui/badge'
 
 export function RelatoriosPage() {
-  const [analiseData, setAnaliseData] = useState<any>(null)
+  // Usar dados do Firestore
+  const { data: firestoreData, loading, error, refetch, isConnected } = useFirestore();
 
-  useEffect(() => {
-    const data = localStorage.getItem('ultima-analise')
-    if (data) {
-      setAnaliseData(JSON.parse(data))
-    }
-  }, [])
-
-  if (!analiseData) {
-    return (
-      <Alert>
-        <AlertCircle className="h-4 w-4" />
-        <AlertDescription>
-          Nenhuma análise encontrada. Por favor, faça upload de um arquivo CSV primeiro.
-        </AlertDescription>
-      </Alert>
-    )
+  if (loading) {
+    return <FirestoreStatus loading={loading} />;
   }
 
-  const { analise, data: dataAnalise, arquivo } = analiseData
+  if (error || !firestoreData) {
+    return (
+      <div className="space-y-4">
+        <FirestoreStatus error={error} onRetry={refetch} />
+        {!firestoreData && (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Nenhuma análise encontrada. Conecte-se ao Firestore para gerar relatórios.
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
+    );
+  }
+
+  const { analise, data: dataAnalise, arquivo, fonte } = firestoreData
   const { estatisticas, deputadosAnalise, fornecedoresSuspeitos, alertas } = analise
 
   const gerarRelatorioCompleto = () => {
@@ -36,7 +42,8 @@ RELATÓRIO DE ANÁLISE - GASTOS PARLAMENTARES
 ===========================================
 
 Data da Análise: ${format(new Date(dataAnalise), "dd 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR })}
-Arquivo Analisado: ${arquivo}
+Fonte dos Dados: ${fonte === 'firestore' ? 'Firestore (Tempo Real)' : 'Arquivo CSV'}
+Arquivo/Período: ${arquivo}
 
 RESUMO EXECUTIVO
 ----------------
@@ -133,7 +140,8 @@ Relatório gerado automaticamente pelo Sistema de Monitoramento de Gastos Parlam
     <div class="header">
         <h1>Relatório de Análise - Gastos Parlamentares</h1>
         <p><strong>Data:</strong> ${format(new Date(dataAnalise), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}</p>
-        <p><strong>Arquivo:</strong> ${arquivo}</p>
+        <p><strong>Fonte:</strong> ${fonte === 'firestore' ? 'Firestore (Tempo Real)' : 'Arquivo CSV'}</p>
+        <p><strong>Período:</strong> ${arquivo}</p>
     </div>
 
     <div class="section">
@@ -199,7 +207,21 @@ Relatório gerado automaticamente pelo Sistema de Monitoramento de Gastos Parlam
             Gere relatórios detalhados da análise realizada
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <FirestoreStatus 
+            showConnectionStatus 
+            isConnected={isConnected}
+            dataSource={fonte as 'firestore' | 'cache'}
+          />
+          <Button 
+            onClick={refetch} 
+            variant="outline" 
+            size="sm"
+            disabled={loading}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Atualizar
+          </Button>
           <Button onClick={gerarRelatorioCompleto} variant="outline">
             <FileText className="mr-2 h-4 w-4" />
             Relatório TXT
@@ -221,6 +243,14 @@ Relatório gerado automaticamente pelo Sistema de Monitoramento de Gastos Parlam
           <CardTitle>Resumo da Análise</CardTitle>
           <CardDescription>
             Análise realizada em {format(new Date(dataAnalise), "dd 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR })}
+            {fonte === 'firestore' && (
+              <span className="ml-2">
+                <Badge variant="outline" className="text-xs">
+                  <Database className="h-3 w-3 mr-1" />
+                  Dados em tempo real
+                </Badge>
+              </span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>

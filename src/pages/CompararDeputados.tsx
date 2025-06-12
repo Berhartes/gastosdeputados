@@ -7,13 +7,20 @@ import {
   ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, 
   PolarRadiusAxis, Radar, LineChart, Line
 } from 'recharts'
-import { ArrowUpDown, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react'
+import { ArrowUpDown, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, Database } from 'lucide-react'
+import { useDeputadosFirestore, useFirestore } from '@/contexts/FirestoreContext'
+import { FirestoreStatus, EmptyDataPlaceholder } from '@/components/FirestoreStatus'
 
 interface CompararDeputadosProps {
-  deputados: any[]
+  deputados?: any[]
 }
 
-export function CompararDeputados({ deputados }: CompararDeputadosProps) {
+export function CompararDeputados({ deputados: deputadosProp }: CompararDeputadosProps) {
+  // Usar dados do Firestore se não foram passados como props
+  const { deputados: deputadosFirestore, loading, error } = useDeputadosFirestore();
+  const { refetch, isConnected } = useFirestore();
+  
+  const deputados = deputadosProp || deputadosFirestore;
   const [deputadosSelecionados, setDeputadosSelecionados] = useState<any[]>([])
   const [metricaSelecionada, setMetricaSelecionada] = useState<'gastos' | 'alertas' | 'categorias'>('gastos')
 
@@ -67,27 +74,90 @@ export function CompararDeputados({ deputados }: CompararDeputadosProps) {
     return dataPoint
   }) : []
 
-  // Dados por categoria
-  const categorias = ['Combustível', 'Divulgação', 'Escritório', 'Passagens', 'Outros']
-  const dadosCategoria = categorias.map(cat => {
-    const data: any = { categoria: cat }
+  // Dados por categoria baseados nos dados reais
+  const processarDadosPorCategoria = () => {
+    const categoriasMap: Record<string, any> = {};
+    
     deputadosSelecionados.forEach(dep => {
-      const nomeSimples = dep.nome.split(' ')[0]
-      // Simular dados de categoria
-      data[nomeSimples] = Math.random() * 20000
-    })
-    return data
-  })
+      const nomeSimples = dep.nome.split(' ')[0];
+      
+      if (dep.maioresCategorias && dep.maioresCategorias.length > 0) {
+        dep.maioresCategorias.forEach((cat: any) => {
+          if (!categoriasMap[cat.categoria]) {
+            categoriasMap[cat.categoria] = { categoria: cat.categoria };
+          }
+          categoriasMap[cat.categoria][nomeSimples] = cat.valor;
+        });
+      } else {
+        // Fallback se não houver dados de categoria
+        const categoriasDefault = ['Combustível', 'Divulgação', 'Escritório', 'Passagens', 'Outros'];
+        categoriasDefault.forEach(cat => {
+          if (!categoriasMap[cat]) {
+            categoriasMap[cat] = { categoria: cat };
+          }
+          categoriasMap[cat][nomeSimples] = dep.totalGasto * (Math.random() * 0.3);
+        });
+      }
+    });
+    
+    return Object.values(categoriasMap).slice(0, 5);
+  };
+  
+  const dadosCategoria = processarDadosPorCategoria();
 
   const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6']
 
+  if (loading) {
+    return <FirestoreStatus loading={loading} />;
+  }
+
+  if (error) {
+    return <FirestoreStatus error={error} onRetry={refetch} />;
+  }
+
+  if (!deputados || deputados.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Comparar Deputados</h2>
+          <p className="text-muted-foreground">
+            Selecione até 4 deputados para comparação detalhada
+          </p>
+        </div>
+        <EmptyDataPlaceholder 
+          message="Nenhum deputado disponível para comparação"
+          actionLabel="Buscar dados do Firestore"
+          onAction={refetch}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">Comparar Deputados</h2>
-        <p className="text-muted-foreground">
-          Selecione até 4 deputados para comparação detalhada
-        </p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Comparar Deputados</h2>
+          <p className="text-muted-foreground">
+            Selecione até 4 deputados para comparação detalhada
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <FirestoreStatus 
+            showConnectionStatus 
+            isConnected={isConnected}
+            dataSource={localStorage.getItem('fonte-dados') as 'firestore' | 'cache'}
+          />
+          <Button 
+            onClick={refetch} 
+            variant="outline" 
+            size="sm"
+            disabled={loading}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       {/* Seletor de Deputados */}
@@ -100,7 +170,10 @@ export function CompararDeputados({ deputados }: CompararDeputadosProps) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {deputados.slice(0, 12).map((dep, index) => {
+            {deputados
+              .sort((a, b) => b.totalGasto - a.totalGasto)
+              .slice(0, 16)
+              .map((dep, index) => {
               const selecionado = deputadosSelecionados.find(d => d.nome === dep.nome)
               return (
                 <Button
@@ -356,15 +429,25 @@ export function CompararDeputados({ deputados }: CompararDeputadosProps) {
                       <td className="p-2 font-medium">Transações</td>
                       {deputadosSelecionados.map((dep, index) => (
                         <td key={index} className="text-right p-2">
-                          {dep.numTransacoes}
+                          {dep.numTransacoes || 'N/A'}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="border-b">
+                      <td className="p-2 font-medium">Média/Transação</td>
+                      {deputadosSelecionados.map((dep, index) => (
+                        <td key={index} className="text-right p-2">
+                          R$ {(dep.gastoMedio || (dep.totalGasto / (dep.numTransacoes || 1))).toFixed(2)}
                         </td>
                       ))}
                     </tr>
                     <tr>
-                      <td className="p-2 font-medium">Média/Transação</td>
+                      <td className="p-2 font-medium">Partido/UF</td>
                       {deputadosSelecionados.map((dep, index) => (
                         <td key={index} className="text-right p-2">
-                          R$ {dep.gastoMedio.toFixed(2)}
+                          <Badge variant="outline">
+                            {dep.partido}-{dep.uf}
+                          </Badge>
                         </td>
                       ))}
                     </tr>

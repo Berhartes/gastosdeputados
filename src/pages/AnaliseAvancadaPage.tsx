@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Brain, FileSpreadsheet, TrendingUp, Users, AlertTriangle, Eye, Download, BarChart3, HardDrive } from 'lucide-react'
+import { Brain, FileSpreadsheet, TrendingUp, Users, AlertTriangle, Eye, Download, BarChart3, HardDrive, Database, RefreshCw } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -7,6 +7,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProcessadorDadosCamara } from '@/components/ProcessadorDadosCamara'
 import { ApiDataFetcher } from '@/components/api/ApiDataFetcher'
 import { ProcessadorArquivosGrandes } from '@/components/ProcessadorArquivosGrandes'
+import { FirestoreDataFetcher } from '@/components/firestore/FirestoreDataFetcher'
+import { useFirestore } from '@/contexts/FirestoreContext'
+import { FirestoreStatus } from '@/components/FirestoreStatus'
 import { 
   type DeputadoProcessado, 
   type FornecedorSuspeito,
@@ -38,6 +41,9 @@ export function AnaliseAvancadaPage({ onSelectDeputado }: AnaliseAvancadaPagePro
     estatisticas: any
   } | null>(null)
   const [padroeDetectados, setPadroesDetectados] = useState<any>(null)
+  
+  // Integração com Firestore
+  const { data: firestoreData, loading: firestoreLoading, error: firestoreError, isConnected } = useFirestore()
 
   useEffect(() => {
     // Tentar carregar dados salvos
@@ -112,6 +118,15 @@ export function AnaliseAvancadaPage({ onSelectDeputado }: AnaliseAvancadaPagePro
       {!dadosAnalise ? (
         /* Opções de entrada de dados */
         <div className="space-y-6">
+          {/* Status da Conexão Firestore */}
+          <div className="flex justify-end">
+            <FirestoreStatus 
+              showConnectionStatus 
+              isConnected={isConnected}
+              dataSource={localStorage.getItem('fonte-dados') as 'firestore' | 'cache'}
+            />
+          </div>
+          
           <div className="grid gap-6 md:grid-cols-2">
             {/* Upload de Arquivo */}
             <Card>
@@ -129,6 +144,50 @@ export function AnaliseAvancadaPage({ onSelectDeputado }: AnaliseAvancadaPagePro
               </CardContent>
             </Card>
 
+            {/* Buscar do Firestore */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Database className="h-5 w-5" />
+                  Buscar do Firestore
+                </CardTitle>
+                <CardDescription>
+                  Dados em tempo real do banco de dados
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FirestoreDataFetcher onDataFetched={(data) => {
+                  // Converter o formato da análise para o esperado
+                  const dadosConvertidos = {
+                    deputados: data.analise.deputadosAnalise.map((dep: any) => ({
+                      nome: dep.nome,
+                      partido: dep.partido,
+                      uf: dep.uf,
+                      totalGasto: dep.totalGasto,
+                      numTransacoes: dep.numTransacoes,
+                      scoreSuspeicao: dep.scoreSuspeicao,
+                      alertas: dep.alertas,
+                      gastos: dep.gastos
+                    })),
+                    fornecedores: data.analise.fornecedoresSuspeitos.map((forn: any) => ({
+                      nome: forn.nome,
+                      cnpj: forn.cnpj,
+                      totalTransacionado: forn.totalRecebido,
+                      deputadosAtendidos: forn.deputadosNomes || [],
+                      scoreSuspeicao: forn.indiceSuspeicao,
+                      alertas: forn.razoesSuspeita || []
+                    })),
+                    estatisticas: {
+                      totalGastos: data.analise.estatisticas.totalGasto,
+                      totalDeputados: data.analise.estatisticas.numDeputados,
+                      alertasEncontrados: data.analise.alertas.length
+                    }
+                  }
+                  setDadosAnalise(dadosConvertidos)
+                }} />
+              </CardContent>
+            </Card>
+            
             {/* Buscar da API */}
             <ApiDataFetcher onDataFetched={(data) => {
               // Converter o formato da análise para o esperado
@@ -161,6 +220,57 @@ export function AnaliseAvancadaPage({ onSelectDeputado }: AnaliseAvancadaPagePro
             }} />
           </div>
 
+          {/* Botão para usar dados do contexto Firestore */}
+          {firestoreData && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Database className="h-5 w-5" />
+                  Usar Dados Carregados
+                </CardTitle>
+                <CardDescription>
+                  {firestoreData.analise.deputadosAnalise.length} deputados já carregados do Firestore
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button 
+                  className="w-full"
+                  onClick={() => {
+                    const dadosConvertidos = {
+                      deputados: firestoreData.analise.deputadosAnalise.map((dep: any) => ({
+                        nome: dep.nome,
+                        partido: dep.partido,
+                        uf: dep.uf,
+                        totalGasto: dep.totalGasto,
+                        numTransacoes: dep.numTransacoes,
+                        scoreSuspeicao: dep.scoreSuspeicao,
+                        alertas: dep.alertas,
+                        gastos: dep.gastos
+                      })),
+                      fornecedores: firestoreData.analise.fornecedoresSuspeitos.map((forn: any) => ({
+                        nome: forn.nome,
+                        cnpj: forn.cnpj,
+                        totalTransacionado: forn.totalRecebido,
+                        deputadosAtendidos: forn.deputadosNomes || [],
+                        scoreSuspeicao: forn.indiceSuspeicao,
+                        alertas: forn.razoesSuspeita || []
+                      })),
+                      estatisticas: {
+                        totalGastos: firestoreData.analise.estatisticas.totalGasto,
+                        totalDeputados: firestoreData.analise.estatisticas.numDeputados,
+                        alertasEncontrados: firestoreData.analise.alertas.length
+                      }
+                    }
+                    setDadosAnalise(dadosConvertidos)
+                  }}
+                >
+                  <Database className="h-4 w-4 mr-2" />
+                  Usar Dados do Contexto
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          
           {/* Processador de Arquivos Grandes */}
           <ProcessadorArquivosGrandes 
             onProcessComplete={(resultado) => {

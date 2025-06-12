@@ -319,20 +319,25 @@ export class AnalisadorGastos {
           indiceSuspeicao += 30
         }
 
+        // Extrair categorias únicas das transações
+        const categorias = _.uniq(transacoes.map(t => t.txtDescricao).filter(d => d))
+
         return {
           cnpj,
           nome: transacoes[0].txtFornecedor,
           totalRecebido,
           numTransacoes: transacoes.length,
           deputadosAtendidos: deputadosUnicos.length,
+          deputadosNomes: deputadosUnicos.map(d => d.txNomeParlamentar), // Array com nomes dos deputados
           mediaTransacao,
           indiceSuspeicao,
-          alertas
+          alertas,
+          razoesSuspeita: alertas, // Alias para alertas
+          categorias // Categorias de despesas atendidas
         }
       })
-      .filter(f => f.indiceSuspeicao > 0)
+      // Remover o filtro para incluir TODOS os fornecedores
       .sort((a, b) => b.indiceSuspeicao - a.indiceSuspeicao)
-      .slice(0, 50)
   }
 
   private calcularScoreSuspeicao(alertas: AlertaSuspeito[]): number {

@@ -13,8 +13,9 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
 } from 'recharts'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { NetworkGraph } from '@/components/NetworkGraph'
-import { useDeputadoFirestore } from '@/hooks/use-firestore-data'
+// import { useDeputadoFirestore } from '@/hooks/use-firestore-data' // Comentado pois não parece estar em uso direto no componente
 import { useFirestore } from '@/contexts/FirestoreContext'
 import { FirestoreStatus } from '@/components/FirestoreStatus'
 import { firestoreService } from '@/services/firestore-service'
@@ -28,71 +29,164 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
   const [deputadoData, setDeputadoData] = useState<any>(null)
   const [despesasDetalhadas, setDespesasDetalhadas] = useState<any[]>([])
   const [loadingDespesas, setLoadingDespesas] = useState(false)
+  const [anoSelecionado, setAnoSelecionado] = useState<number>(new Date().getFullYear());
+  const [mesSelecionado, setMesSelecionado] = useState<string>('todos'); // 'todos' para ano completo
+
+  const anosDisponiveis = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
+  const mesesDisponiveis = [
+    { valor: 'todos', nome: 'Ano completo' },
+    { valor: '1', nome: 'Janeiro' },
+    { valor: '2', nome: 'Fevereiro' },
+    { valor: '3', nome: 'Março' },
+    { valor: '4', nome: 'Abril' },
+    { valor: '5', nome: 'Maio' },
+    { valor: '6', nome: 'Junho' },
+    { valor: '7', nome: 'Julho' },
+    { valor: '8', nome: 'Agosto' },
+    { valor: '9', nome: 'Setembro' },
+    { valor: '10', nome: 'Outubro' },
+    { valor: '11', nome: 'Novembro' },
+    { valor: '12', nome: 'Dezembro' },
+  ];
+
+  const renderFornecedoresReais = () => {
+    // Agrupar por fornecedor
+    const fornecedoresMap: Record<string, any> = {};
+    
+    despesasDetalhadas.forEach((despesa: any) => {
+      const fornecedor = despesa.nomeFornecedor || 'Não informado';
+      const cnpj = despesa.cnpjCpfFornecedor || '';
+      const valor = parseFloat(despesa.valorLiquido || despesa.valorDocumento || 0);
+      
+      const chave = `${fornecedor}|${cnpj}`;
+      
+      if (!fornecedoresMap[chave]) {
+        fornecedoresMap[chave] = { 
+          nome: fornecedor,
+          cnpj: cnpj,
+          valor: 0, 
+          count: 0,
+          categorias: new Set()
+        };
+      }
+      
+      fornecedoresMap[chave].valor += valor;
+      fornecedoresMap[chave].count += 1;
+      if (despesa.tipoDespesa) {
+        fornecedoresMap[chave].categorias.add(despesa.tipoDespesa);
+      }
+    });
+    
+    // Converter para array e ordenar
+    const fornecedoresOrdenados = Object.entries(fornecedoresMap)
+      .map(([chave, dados]) => ({
+        nome: dados.nome,
+        cnpj: dados.cnpj,
+        valor: dados.valor,
+        transacoes: dados.count,
+        categorias: Array.from(dados.categorias)
+      }))
+      .sort((a, b) => b.valor - a.valor); // Removido o .slice(0, 10) para mostrar todos
+    
+    return fornecedoresOrdenados.map((fornecedor, index) => (
+      <div key={index} className="p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <p className="font-medium">{fornecedor.nome}</p>
+            <p className="text-xs text-muted-foreground mb-1">
+              CNPJ: {fornecedor.cnpj || 'Não informado'}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {fornecedor.transacoes} transações
+            </p>
+            {fornecedor.categorias.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {fornecedor.categorias.map((cat: string, idx: number) => (
+                  <Badge key={idx} variant="outline" className="text-xs">
+                    {cat.length > 30 ? cat.substring(0, 30) + '...' : cat}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="text-right ml-4">
+            <p className="font-bold text-lg">
+              R$ {fornecedor.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+            <Badge variant="outline" className="text-xs">
+              Média: R$ {(fornecedor.valor / fornecedor.transacoes).toFixed(2)}
+            </Badge>
+          </div>
+        </div>
+      </div>
+    ));
+  };
   
   // Usar contexto do Firestore
   const { data: firestoreData, isConnected } = useFirestore();
   
   // Buscar despesas detalhadas do deputado
-  const buscarDespesasDeputado = async (deputadoId: string) => {
+  const buscarDespesasDeputado = async (deputadoId: string, ano: number, mes: string) => {
     setLoadingDespesas(true);
     try {
-      const ano = new Date().getFullYear();
       const despesas = await firestoreService.buscarDespesasDeputado(
         deputadoId,
         ano,
-        'todos'
+        mes 
       );
       setDespesasDetalhadas(despesas);
     } catch (error) {
       console.error('Erro ao buscar despesas:', error);
+      // TODO: Adicionar toast de erro para o usuário
     } finally {
       setLoadingDespesas(false);
     }
   };
 
+  // Efeito para definir os dados básicos do deputado
   useEffect(() => {
     if (deputado) {
-      // Usar dados do deputado selecionado
       setDeputadoData({
         id: deputado.id || deputado.ideCadastro,
         nome: deputado.nome,
         partido: deputado.partido,
         uf: deputado.uf,
-        foto: deputado.urlFoto || `https://www.camara.leg.br/internet/deputado/bandep/${deputado.id || '220611'}.jpg`,
-        mandatos: "2023-2027",
+        foto: deputado.urlFoto || `https://www.camara.leg.br/internet/deputado/bandep/${deputado.id || deputado.ideCadastro || '220611'}.jpg`,
+        mandatos: deputado.mandatos || "2023-2027",
         comissoes: deputado.comissoes || ["Comissões não informadas"],
-        totalGasto: deputado.totalGasto,
-        scoreSuspeicao: deputado.scoreSuspeicao,
+        totalGasto: deputado.totalGasto || 0, // Adicionado fallback para totalGasto
+        scoreSuspeicao: deputado.scoreSuspeicao || 0, // Adicionado fallback
         numAlertas: deputado.alertas?.length || 0,
         ranking: deputado.ranking || Math.floor(Math.random() * 513) + 1,
-        email: deputado.email || `dep.${deputado.nome.toLowerCase().replace(/\s+/g, '.')}@camara.leg.br`,
+        email: deputado.email || `dep.${(deputado.nome || 'nome').toLowerCase().replace(/\s+/g, '.')}@camara.leg.br`,
         telefone: deputado.telefone || "(61) 3215-5XXX"
       });
-      
-      // Buscar despesas detalhadas se tiver ID
-      if (deputado.id || deputado.ideCadastro) {
-        buscarDespesasDeputado(deputado.id || deputado.ideCadastro);
-      }
-    } else if (firestoreData?.analise?.deputadosAnalise?.length > 0) {
-      // Usar primeiro deputado do Firestore como exemplo
+    } else if (firestoreData?.analise?.deputadosAnalise?.length > 0 && !deputadoData) { 
       const primeiroDeputado = firestoreData.analise.deputadosAnalise[0];
       setDeputadoData({
         id: primeiroDeputado.id || primeiroDeputado.ideCadastro,
         nome: primeiroDeputado.nome,
         partido: primeiroDeputado.partido,
         uf: primeiroDeputado.uf,
-        foto: `https://www.camara.leg.br/internet/deputado/bandep/220611.jpg`,
+        foto: `https://www.camara.leg.br/internet/deputado/bandep/${primeiroDeputado.id || primeiroDeputado.ideCadastro || '220611'}.jpg`,
         mandatos: "2023-2027",
         comissoes: ["Comissões não informadas"],
-        totalGasto: primeiroDeputado.totalGasto,
-        scoreSuspeicao: primeiroDeputado.scoreSuspeicao,
+        totalGasto: primeiroDeputado.totalGasto || 0, // Adicionado fallback
+        scoreSuspeicao: primeiroDeputado.scoreSuspeicao || 0, // Adicionado fallback
         numAlertas: primeiroDeputado.alertas?.length || 0,
         ranking: 1,
         email: `dep.${primeiroDeputado.nome.toLowerCase().replace(/\s+/g, '.')}@camara.leg.br`,
         telefone: "(61) 3215-5XXX"
       });
     }
-  }, [deputado, firestoreData])
+  }, [deputado, firestoreData]);
+
+  // Efeito para buscar despesas detalhadas quando o deputado ou filtros mudam
+  useEffect(() => {
+    if (deputadoData?.id) {
+      buscarDespesasDeputado(deputadoData.id, anoSelecionado, mesSelecionado);
+    }
+  }, [deputadoData?.id, anoSelecionado, mesSelecionado]);
 
   if (!deputadoData) {
     return (
@@ -128,7 +222,7 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
       .map(([categoria, valor]) => ({
         categoria: categoria.substring(0, 30),
         valor,
-        percentual: ((valor / totalGeral) * 100).toFixed(1)
+        percentual: totalGeral > 0 ? ((valor / totalGeral) * 100).toFixed(1) : "0.0" // Evitar divisão por zero
       }))
       .sort((a, b) => b.valor - a.valor)
       .slice(0, 7);
@@ -139,37 +233,37 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
     valor: cat.valor,
     percentual: cat.percentual
   })) || [
-    { categoria: 'Passagens Aéreas', valor: 15556.95, percentual: 31.7 },
-    { categoria: 'Divulgação', valor: 13000.00, percentual: 26.5 },
-    { categoria: 'Manutenção de Escritório', valor: 9252.02, percentual: 18.8 },
-    { categoria: 'Locação de Veículos', valor: 7244.88, percentual: 14.7 },
-    { categoria: 'Combustíveis', valor: 3164.72, percentual: 6.4 },
-    { categoria: 'Hospedagem', valor: 598.50, percentual: 1.2 },
-    { categoria: 'Telefonia', valor: 314.27, percentual: 0.6 }
+    { categoria: 'Passagens Aéreas', valor: 15556.95, percentual: "31.7" },
+    { categoria: 'Divulgação', valor: 13000.00, percentual: "26.5" },
+    { categoria: 'Manutenção de Escritório', valor: 9252.02, percentual: "18.8" },
+    { categoria: 'Locação de Veículos', valor: 7244.88, percentual: "14.7" },
+    { categoria: 'Combustíveis', valor: 3164.72, percentual: "6.4" },
+    { categoria: 'Hospedagem', valor: 598.50, percentual: "1.2" },
+    { categoria: 'Telefonia', valor: 314.27, percentual: "0.6" }
   ]
 
   const evolucaoMensal = [
-    { mes: 'Jan', valor: deputadoData.totalGasto * 0.9, limite: 45000 },
-    { mes: 'Fev', valor: deputadoData.totalGasto * 0.85, limite: 45000 },
-    { mes: 'Mar', valor: deputadoData.totalGasto * 0.8, limite: 45000 },
-    { mes: 'Abr', valor: deputadoData.totalGasto * 0.95, limite: 45000 },
-    { mes: 'Mai', valor: deputadoData.totalGasto * 0.88, limite: 45000 },
-    { mes: 'Jun', valor: deputadoData.totalGasto * 0.92, limite: 45000 }
+    { mes: 'Jan', valor: (deputadoData.totalGasto || 0) * 0.9, limite: 45000 },
+    { mes: 'Fev', valor: (deputadoData.totalGasto || 0) * 0.85, limite: 45000 },
+    { mes: 'Mar', valor: (deputadoData.totalGasto || 0) * 0.8, limite: 45000 },
+    { mes: 'Abr', valor: (deputadoData.totalGasto || 0) * 0.95, limite: 45000 },
+    { mes: 'Mai', valor: (deputadoData.totalGasto || 0) * 0.88, limite: 45000 },
+    { mes: 'Jun', valor: (deputadoData.totalGasto || 0) * 0.92, limite: 45000 }
   ]
 
   const fornecedoresPrincipais = [
-    { nome: 'Correios Brasil', valor: deputadoData.totalGasto * 0.15, transacoes: 12 },
-    { nome: 'Gráfica Parlamentar', valor: deputadoData.totalGasto * 0.12, transacoes: 8 },
-    { nome: 'Locadora Veículos', valor: deputadoData.totalGasto * 0.18, transacoes: 3 },
-    { nome: 'Posto de Combustível', valor: deputadoData.totalGasto * 0.08, transacoes: 15 }
+    { nome: 'Correios Brasil', valor: (deputadoData.totalGasto || 0) * 0.15, transacoes: 12 },
+    { nome: 'Gráfica Parlamentar', valor: (deputadoData.totalGasto || 0) * 0.12, transacoes: 8 },
+    { nome: 'Locadora Veículos', valor: (deputadoData.totalGasto || 0) * 0.18, transacoes: 3 },
+    { nome: 'Posto de Combustível', valor: (deputadoData.totalGasto || 0) * 0.08, transacoes: 15 }
   ]
 
   const comparativoPartido = [
-    { categoria: 'Combustível', deputado: deputadoData.totalGasto * 0.1, mediaPartido: 4500.00 },
-    { categoria: 'Divulgação', deputado: deputadoData.totalGasto * 0.25, mediaPartido: 8000.00 },
-    { categoria: 'Escritório', deputado: deputadoData.totalGasto * 0.2, mediaPartido: 10000.00 },
-    { categoria: 'Passagens', deputado: deputadoData.totalGasto * 0.3, mediaPartido: 12000.00 },
-    { categoria: 'Veículos', deputado: deputadoData.totalGasto * 0.15, mediaPartido: 6000.00 }
+    { categoria: 'Combustível', deputado: (deputadoData.totalGasto || 0) * 0.1, mediaPartido: 4500.00 },
+    { categoria: 'Divulgação', deputado: (deputadoData.totalGasto || 0) * 0.25, mediaPartido: 8000.00 },
+    { categoria: 'Escritório', deputado: (deputadoData.totalGasto || 0) * 0.2, mediaPartido: 10000.00 },
+    { categoria: 'Passagens', deputado: (deputadoData.totalGasto || 0) * 0.3, mediaPartido: 12000.00 },
+    { categoria: 'Veículos', deputado: (deputadoData.totalGasto || 0) * 0.15, mediaPartido: 6000.00 }
   ]
 
   const redesPoliticas = {
@@ -196,7 +290,7 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
     const perfilData = {
       deputado: deputadoData,
       gastos: gastosCategoria,
-      fornecedores: fornecedoresPrincipais,
+      fornecedores: fornecedoresPrincipais, // Idealmente seriam os fornecedoresReais
       evolucao: evolucaoMensal
     }
     
@@ -276,10 +370,10 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              R$ {deputadoData.totalGasto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              R$ {(deputadoData.totalGasto || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
             <p className="text-xs text-muted-foreground">
-              {((deputadoData.totalGasto / 45000) * 100).toFixed(1)}% do limite
+              {(((deputadoData.totalGasto || 0) / 45000) * 100).toFixed(1)}% do limite
             </p>
           </CardContent>
         </Card>
@@ -291,11 +385,11 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
           </CardHeader>
           <CardContent>
             <div className={`text-2xl font-bold ${
-              deputadoData.scoreSuspeicao >= 70 ? 'text-red-600' :
-              deputadoData.scoreSuspeicao >= 40 ? 'text-yellow-600' :
+              (deputadoData.scoreSuspeicao || 0) >= 70 ? 'text-red-600' :
+              (deputadoData.scoreSuspeicao || 0) >= 40 ? 'text-yellow-600' :
               'text-green-600'
             }`}>
-              {deputadoData.scoreSuspeicao}
+              {deputadoData.scoreSuspeicao || 0}
             </div>
             <p className="text-xs text-muted-foreground">
               {deputadoData.numAlertas} alertas ativos
@@ -322,9 +416,13 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
             <Building2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{fornecedoresPrincipais.length}</div>
+            <div className="text-2xl font-bold">{
+              despesasDetalhadas.length > 0 ? 
+              Object.keys(despesasDetalhadas.reduce((acc: any, curr: any) => { acc[curr.nomeFornecedor || 'Não informado'] = true; return acc; }, {})).length :
+              fornecedoresPrincipais.length
+            }</div>
             <p className="text-xs text-muted-foreground">
-              Fornecedores principais
+             {despesasDetalhadas.length > 0 ? "Fornecedores no período" : "Fornecedores principais (exemplo)"}
             </p>
           </CardContent>
         </Card>
@@ -360,6 +458,48 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
         </Card>
       )}
 
+      {/* Filtros de Ano e Mês */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex flex-col sm:flex-row gap-4 items-center">
+            <div className="w-full sm:w-auto">
+              <Select
+                value={anoSelecionado.toString()}
+                onValueChange={(value) => setAnoSelecionado(parseInt(value))}
+              >
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <SelectValue placeholder="Selecione o Ano" />
+                </SelectTrigger>
+                <SelectContent>
+                  {anosDisponiveis.map((ano) => (
+                    <SelectItem key={ano} value={ano.toString()}>
+                      {ano}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-full sm:w-auto">
+              <Select
+                value={mesSelecionado}
+                onValueChange={(value) => setMesSelecionado(value)}
+              >
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <SelectValue placeholder="Selecione o Mês" />
+                </SelectTrigger>
+                <SelectContent>
+                  {mesesDisponiveis.map((mes) => (
+                    <SelectItem key={mes.valor} value={mes.valor}>
+                      {mes.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Tabs com Análises Detalhadas */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid w-full grid-cols-5">
@@ -369,248 +509,206 @@ export function PerfilDeputado({ deputado }: PerfilDeputadoProps) {
           <TabsTrigger value="comparativo">Comparativo</TabsTrigger>
           <TabsTrigger value="relacoes">Relações</TabsTrigger>
         </TabsList>
-        <>
-        {/* Visão Geral */}
+        
         <TabsContent value="visao-geral" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Distribuição de Gastos por Categoria</CardTitle>
-                <CardDescription>Análise detalhada dos gastos</CardDescription>
-              </CardHeader>
-              <CardContent>
-              {loadingDespesas ? (
-              <div className="flex items-center justify-center h-[300px]">
-                  <FirestoreStatus loading={true} />
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="300">
-                  <PieChart>
-                    <Pie
-                      data={gastosCategoria}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ percentual }) => `${percentual}%`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="valor"
-                    >
-                      {gastosCategoria.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} />
-                    <Legend />
-                  </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Detalhamento de Despesas</CardTitle>
-                <CardDescription>
-                  Principais categorias de gastos
-                  {despesasDetalhadas.length > 0 && (
-                    <span className="ml-2 text-xs">
-                      ({despesasDetalhadas.length} transações)
-                    </span>
+          <>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Distribuição de Gastos por Categoria</CardTitle>
+                  <CardDescription>Análise detalhada dos gastos ({mesSelecionado === 'todos' ? `Ano ${anoSelecionado}` : `${mesesDisponiveis.find(m => m.valor === mesSelecionado)?.nome}/${anoSelecionado}`})</CardDescription>
+                </CardHeader>
+                <CardContent>
+                {loadingDespesas ? (
+                <div className="flex items-center justify-center h-[300px]">
+                    <FirestoreStatus loading={true} />
+                  </div>
+                ) : gastosCategoria.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={gastosCategoria}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ percentual, categoria }) => `${categoria}: ${percentual}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="valor"
+                      >
+                        {gastosCategoria.map((entry: { categoria: string; valor: number; percentual: string }, index: number) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} />
+                      <Legend />
+                    </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <p className="text-center text-muted-foreground h-[300px] flex items-center justify-center">
+                      Não há dados de despesas para o período selecionado.
+                    </p>
                   )}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {gastosCategoria.map((item, index) => (
-                    <div key={index} className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{item.categoria}</span>
-                        <span>R$ {item.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div 
-                          className="h-2 rounded-full transition-all duration-500" 
-                          style={{ 
-                            width: `${item.percentual}%`,
-                            backgroundColor: COLORS[index % COLORS.length]
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
+                </CardContent>
+              </Card>
 
-        {/* Fornecedores */}
-        <TabsContent value="fornecedores" className="space-y-4">
-          {despesasDetalhadas.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Fornecedores Reais</CardTitle>
-                <CardDescription>Baseado em {despesasDetalhadas.length} transações do Firestore</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {(() => {
-                    // Agrupar por fornecedor
-                    const fornecedoresMap: Record<string, { valor: number; count: number }> = {};
-                    
-                    despesasDetalhadas.forEach((despesa: any) => {
-                      const fornecedor = despesa.nomeFornecedor || 'Não informado';
-                      const valor = parseFloat(despesa.valorLiquido || despesa.valorDocumento || 0);
-                      
-                      if (!fornecedoresMap[fornecedor]) {
-                        fornecedoresMap[fornecedor] = { valor: 0, count: 0 };
-                      }
-                      
-                      fornecedoresMap[fornecedor].valor += valor;
-                      fornecedoresMap[fornecedor].count += 1;
-                    });
-                    
-                    // Converter para array e ordenar
-                    const fornecedoresOrdenados = Object.entries(fornecedoresMap)
-                      .map(([nome, dados]) => ({
-                        nome,
-                        valor: dados.valor,
-                        transacoes: dados.count
-                      }))
-                      .sort((a, b) => b.valor - a.valor)
-                      .slice(0, 10);
-                    
-                    return fornecedoresOrdenados.map((fornecedor, index) => (
-                      <div key={index} className="p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium">{fornecedor.nome}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {fornecedor.transacoes} transações
-                            </p>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Detalhamento de Despesas</CardTitle>
+                  <CardDescription>
+                    Principais categorias de gastos
+                    {despesasDetalhadas.length > 0 && (
+                      <span className="ml-2 text-xs">
+                        ({despesasDetalhadas.length} transações no período)
+                      </span>
+                    )}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {loadingDespesas ? (
+                     <div className="flex items-center justify-center h-[300px]">
+                       <FirestoreStatus loading={true} />
+                     </div>
+                  ) : gastosCategoria.length > 0 ? (
+                    <div className="space-y-4">
+                      {gastosCategoria.map((item: { categoria: string; valor: number; percentual: string }, index: number) => (
+                        <div key={index} className="space-y-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-medium">{item.categoria}</span>
+                            <span>R$ {item.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                           </div>
-                          <div className="text-right">
-                            <p className="font-bold text-lg">
-                              R$ {fornecedor.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                            </p>
-                            <Badge variant="outline" className="text-xs">
-                              Média: R$ {(fornecedor.valor / fornecedor.transacoes).toFixed(2)}
-                            </Badge>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div 
+                              className="h-2 rounded-full transition-all duration-500" 
+                              style={{ 
+                                width: `${item.percentual}%`,
+                                backgroundColor: COLORS[index % COLORS.length]
+                              }}
+                            />
                           </div>
                         </div>
-                      </div>
-                    ));
-                  })()}
-                </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-center text-muted-foreground h-[300px] flex items-center justify-center">
+                      Não há dados de despesas para o período selecionado.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        </TabsContent>
+
+        <TabsContent value="fornecedores" className="space-y-4">
+          <>
+            {loadingDespesas ? (
+              <div className="flex items-center justify-center h-[300px]">
+                <FirestoreStatus loading={true} />
+              </div>
+            ) : despesasDetalhadas.length > 0 ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Fornecedores</CardTitle>
+                  <CardDescription>Baseado em {despesasDetalhadas.length} transações do Firestore para {mesSelecionado === 'todos' ? `o ano ${anoSelecionado}` : `${mesesDisponiveis.find(m => m.valor === mesSelecionado)?.nome}/${anoSelecionado}`}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {renderFornecedoresReais()}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Fornecedores</CardTitle>
+                  <CardDescription>Empresas que mais receberam pagamentos</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-center text-muted-foreground">
+                    Não há dados de fornecedores para o período selecionado.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        </TabsContent>
+
+        <TabsContent value="evolucao" className="space-y-4">
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>Evolução Mensal de Gastos</CardTitle>
+                <CardDescription>Comparação com o limite permitido (Dados de exemplo)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={evolucaoMensal}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="mes" />
+                    <YAxis tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} />
+                    <Tooltip formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR')}`} />
+                    <Legend />
+                    <Line 
+                      type="monotone" 
+                      dataKey="valor" 
+                      stroke="#3B82F6" 
+                      name="Gastos"
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="limite" 
+                      stroke="#EF4444" 
+                      name="Limite"
+                      strokeDasharray="5 5"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </CardContent>
             </Card>
-          ) : (
-            <Card>
-            <CardHeader>
-              <CardTitle>Principais Fornecedores</CardTitle>
-              <CardDescription>Empresas que mais receberam pagamentos</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {fornecedoresPrincipais.map((fornecedor, index) => (
-                  <div key={index} className="p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{fornecedor.nome}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {fornecedor.transacoes} transações
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-bold text-lg">
-                          R$ {fornecedor.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </p>
-                        <Badge variant="outline" className="text-xs">
-                          Média: R$ {(fornecedor.valor / fornecedor.transacoes).toFixed(2)}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          </>
         </TabsContent>
 
-        {/* Evolução */}
-        <TabsContent value="evolucao" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Evolução Mensal de Gastos</CardTitle>
-              <CardDescription>Comparação com o limite permitido</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height="300">
-                <LineChart data={evolucaoMensal}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="mes" />
-                  <YAxis tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR')}`} />
-                  <Legend />
-                  <Line 
-                    type="monotone" 
-                    dataKey="valor" 
-                    stroke="#3B82F6" 
-                    name="Gastos"
-                    strokeWidth={2}
-                    dot={{ r: 4 }}
-                    activeDot={{ r: 6 }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="limite" 
-                    stroke="#EF4444" 
-                    name="Limite"
-                    strokeDasharray="5 5"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Comparativo */}
         <TabsContent value="comparativo" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Comparativo com Média do Partido</CardTitle>
-              <CardDescription>Gastos do deputado vs média do {deputadoData.partido}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height="300">
-                <BarChart data={comparativoPartido}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="categoria" />
-                  <YAxis tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR')}`} />
-                  <Legend />
-                  <Bar dataKey="deputado" fill="#3B82F6" name="Deputado" />
-                  <Bar dataKey="mediaPartido" fill="#10B981" name="Média Partido" />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>Comparativo com Média do Partido</CardTitle>
+                <CardDescription>Gastos do deputado vs média do {deputadoData.partido} (Dados de exemplo)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={comparativoPartido}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="categoria" />
+                    <YAxis tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} />
+                    <Tooltip formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR')}`} />
+                    <Legend />
+                    <Bar dataKey="deputado" fill="#3B82F6" name="Deputado" />
+                    <Bar dataKey="mediaPartido" fill="#10B981" name="Média Partido" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </>
         </TabsContent>
 
-        {/* Relações Políticas */}
         <TabsContent value="relacoes" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Rede de Relações Políticas</CardTitle>
-              <CardDescription>Conexões com outros parlamentares e grupos</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <NetworkGraph nodes={redesPoliticas.nodes} edges={redesPoliticas.edges} />
-            </CardContent>
-          </Card>
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>Rede de Relações Políticas</CardTitle>
+                <CardDescription>Conexões com outros parlamentares e grupos (Dados de exemplo)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <NetworkGraph nodes={redesPoliticas.nodes} edges={redesPoliticas.edges} />
+              </CardContent>
+            </Card>
+          </>
         </TabsContent>
-        </>
       </Tabs>
 
       {/* Informações de Contato */}
