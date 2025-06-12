@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DeputadoCard } from '@/components/DeputadoCard'
-import { Search, Filter, TrendingDown, TrendingUp } from 'lucide-react'
+import { Search, Filter, TrendingDown, TrendingUp, RefreshCw } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -12,29 +12,31 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { AdvancedSearch, FilterOptions } from '@/components/filters/AdvancedSearch'
+import { useFirestore, useDeputadosFirestore } from '@/contexts/FirestoreContext'
+import { FirestoreStatus, EmptyDataPlaceholder } from '@/components/FirestoreStatus'
 
 interface ListaDeputadosProps {
   onSelectDeputado: (deputado: any) => void
 }
 
 export function ListaDeputados({ onSelectDeputado }: ListaDeputadosProps) {
-  const [deputados, setDeputados] = useState<any[]>([])
+  // Usar dados do Firestore via Context
+  const { deputados, loading, error } = useDeputadosFirestore();
+  const { filters, setFilters, refetch, isConnected } = useFirestore();
+  
   const [filteredDeputados, setFilteredDeputados] = useState<any[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filtroPartido, setFiltroPartido] = useState('TODOS')
   const [filtroUF, setFiltroUF] = useState('TODOS')
   const [ordenacao, setOrdenacao] = useState('score')
+  const [showAll, setShowAll] = useState(false)
 
   const [advancedFilters, setAdvancedFilters] = useState<FilterOptions | null>(null)
 
+  // Atualizar filteredDeputados quando deputados mudarem
   useEffect(() => {
-    const analiseStr = localStorage.getItem('ultima-analise')
-    if (analiseStr) {
-      const { analise } = JSON.parse(analiseStr)
-      setDeputados(analise.deputadosAnalise || [])
-      setFilteredDeputados(analise.deputadosAnalise || [])
-    }
-  }, [])
+    setFilteredDeputados(deputados)
+  }, [deputados])
 
   useEffect(() => {
     let filtered = [...deputados]
@@ -100,6 +102,8 @@ export function ListaDeputados({ onSelectDeputado }: ListaDeputadosProps) {
 
   const partidos = ['TODOS', ...Array.from(new Set(deputados.map(d => d.partido).filter(p => p && p.trim() !== ''))).sort()]
   const estados = ['TODOS', ...Array.from(new Set(deputados.map(d => d.uf).filter(uf => uf && uf.trim() !== ''))).sort()]
+  
+  const deputadosExibidos = showAll ? filteredDeputados : filteredDeputados.slice(0, 12)
 
   const estatisticas = {
     totalDeputados: filteredDeputados.length,
@@ -110,12 +114,32 @@ export function ListaDeputados({ onSelectDeputado }: ListaDeputadosProps) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">Lista de Deputados</h2>
-        <p className="text-muted-foreground">
-          Explore os perfis individuais de cada deputado
-        </p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Lista de Deputados</h2>
+          <p className="text-muted-foreground">
+            Explore os perfis individuais de cada deputado
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <FirestoreStatus 
+            showConnectionStatus 
+            isConnected={isConnected}
+            dataSource={localStorage.getItem('fonte-dados') as 'firestore' | 'cache'}
+          />
+          <Button 
+            onClick={refetch} 
+            variant="outline" 
+            size="sm"
+            disabled={loading}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Atualizar
+          </Button>
+        </div>
       </div>
+      
+      <FirestoreStatus loading={loading} error={error} onRetry={refetch} />
 
       {/* Estatísticas Rápidas */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -222,8 +246,15 @@ export function ListaDeputados({ onSelectDeputado }: ListaDeputadosProps) {
       )}
 
       {/* Lista de Deputados */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredDeputados.slice(0, 12).map((deputado, index) => (
+      {filteredDeputados.length === 0 && !loading ? (
+        <EmptyDataPlaceholder 
+          message="Nenhum deputado encontrado"
+          actionLabel="Buscar dados do Firestore"
+          onAction={refetch}
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {deputadosExibidos.map((deputado, index) => (
           <DeputadoCard
             key={index}
             nome={deputado.nome}
@@ -235,8 +266,9 @@ export function ListaDeputados({ onSelectDeputado }: ListaDeputadosProps) {
             scoreSuspeicao={deputado.scoreSuspeicao}
             onViewProfile={() => onSelectDeputado(deputado)}
           />
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {filteredDeputados.length === 0 && (
         <Card>
@@ -248,10 +280,24 @@ export function ListaDeputados({ onSelectDeputado }: ListaDeputadosProps) {
         </Card>
       )}
 
-      {filteredDeputados.length > 12 && (
+      {filteredDeputados.length > 12 && !showAll && (
         <div className="text-center">
-          <Button variant="outline">
+          <Button 
+            variant="outline"
+            onClick={() => setShowAll(true)}
+          >
             Carregar mais ({filteredDeputados.length - 12} restantes)
+          </Button>
+        </div>
+      )}
+      
+      {showAll && filteredDeputados.length > 12 && (
+        <div className="text-center">
+          <Button 
+            variant="outline"
+            onClick={() => setShowAll(false)}
+          >
+            Mostrar menos
           </Button>
         </div>
       )}

@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { AlertCircle, AlertTriangle, Filter, Download, Eye } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Filter, Download, Eye, RefreshCw } from 'lucide-react'
 import { AlertaSuspeito } from '@/types/gastos'
 import {
   Select,
@@ -12,30 +12,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useFirestore, useAlertasFirestore } from '@/contexts/FirestoreContext'
+import { FirestoreStatus, EmptyDataPlaceholder } from '@/components/FirestoreStatus'
 
 interface AlertasPageProps {
   onViewProfile?: () => void
 }
 
 export function AlertasPage({ onViewProfile }: AlertasPageProps) {
-  const [analiseData, setAnaliseData] = useState<any>(null)
+  // Usar dados do Firestore via Context
+  const { alertas, loading, error } = useAlertasFirestore();
+  const { data: firestoreData, refetch, isConnected } = useFirestore();
+  
   const [filtroTipo, setFiltroTipo] = useState<string>('TODOS')
   const [filtroGravidade, setFiltroGravidade] = useState<string>('TODOS')
   const [alertasFiltrados, setAlertasFiltrados] = useState<AlertaSuspeito[]>([])
 
+  // Atualizar alertas quando dados mudarem
   useEffect(() => {
-    const data = localStorage.getItem('ultima-analise')
-    if (data) {
-      const parsed = JSON.parse(data)
-      setAnaliseData(parsed)
-      setAlertasFiltrados(parsed.analise.alertas)
-    }
-  }, [])
+    setAlertasFiltrados(alertas)
+  }, [alertas])
 
   useEffect(() => {
-    if (!analiseData) return
-
-    let filtrados = analiseData.analise.alertas
+    let filtrados = [...alertas]
 
     if (filtroTipo !== 'TODOS') {
       filtrados = filtrados.filter((a: AlertaSuspeito) => a.tipo === filtroTipo)
@@ -46,18 +45,7 @@ export function AlertasPage({ onViewProfile }: AlertasPageProps) {
     }
 
     setAlertasFiltrados(filtrados)
-  }, [filtroTipo, filtroGravidade, analiseData])
-
-  if (!analiseData) {
-    return (
-      <Alert>
-        <AlertCircle className="h-4 w-4" />
-        <AlertDescription>
-          Nenhuma análise encontrada. Por favor, faça upload de um arquivo CSV primeiro.
-        </AlertDescription>
-      </Alert>
-    )
-  }
+  }, [filtroTipo, filtroGravidade, alertas])
 
   const getGravidadeColor = (gravidade: string) => {
     switch (gravidade) {
@@ -113,11 +101,29 @@ export function AlertasPage({ onViewProfile }: AlertasPageProps) {
             {alertasFiltrados.length} alertas encontrados na análise
           </p>
         </div>
-        <Button onClick={exportarAlertas} variant="outline">
-          <Download className="mr-2 h-4 w-4" />
-          Exportar CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          <FirestoreStatus 
+            showConnectionStatus 
+            isConnected={isConnected}
+            dataSource={localStorage.getItem('fonte-dados') as 'firestore' | 'cache'}
+          />
+          <Button 
+            onClick={refetch} 
+            variant="outline" 
+            size="sm"
+            disabled={loading}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Atualizar
+          </Button>
+          <Button onClick={exportarAlertas} variant="outline">
+            <Download className="mr-2 h-4 w-4" />
+            Exportar CSV
+          </Button>
+        </div>
       </div>
+      
+      <FirestoreStatus loading={loading} error={error} onRetry={refetch} />
 
       {/* Filtros */}
       <Card>
@@ -164,8 +170,15 @@ export function AlertasPage({ onViewProfile }: AlertasPageProps) {
       </Card>
 
       {/* Lista de Alertas */}
-      <div className="space-y-4">
-        {alertasFiltrados.map((alerta: AlertaSuspeito, index: number) => (
+      {alertasFiltrados.length === 0 && !loading ? (
+        <EmptyDataPlaceholder 
+          message="Nenhum alerta encontrado"
+          actionLabel="Buscar dados do Firestore"
+          onAction={refetch}
+        />
+      ) : (
+        <div className="space-y-4">
+          {alertasFiltrados.map((alerta: AlertaSuspeito, index: number) => (
           <Card key={alerta.id || index} className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="flex items-start justify-between">
@@ -275,8 +288,9 @@ export function AlertasPage({ onViewProfile }: AlertasPageProps) {
               </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {alertasFiltrados.length === 0 && (
         <Card>

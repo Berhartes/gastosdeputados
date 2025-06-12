@@ -12,6 +12,8 @@ import { AnaliseAvancadaPage } from '@/pages/AnaliseAvancadaPage'
 import { FornecedoresPage } from '@/pages/FornecedoresPage'
 import { Navigation } from '@/components/Navigation'
 import { BuscaGlobal } from '@/components/BuscaGlobal'
+import { FirestoreProvider } from '@/contexts/FirestoreContext'
+import { FirestoreStatus } from '@/components/FirestoreStatus'
 
 function App() {
   const [currentPage, setCurrentPage] = useState<'dashboard' | 'alertas' | 'relatorios' | 'perfil' | 'deputados' | 'comparar' | 'configuracoes' | 'analise-avancada' | 'fornecedores'>('dashboard') // 'upload' removido e 'dashboard' como padrão
@@ -36,7 +38,7 @@ function App() {
     // Implementar filtro automático na página de alertas
   }
 
-  // Carregar dados de exemplo
+  // Dados de exemplo removidos - agora vem do Firestore
   const deputadosExemplo = [
     {
       nome: "General Pazuello",
@@ -108,7 +110,8 @@ function App() {
   ]
 
   return (
-    <div className="min-h-screen bg-background">
+    <FirestoreProvider>
+      <div className="min-h-screen bg-background">
       <Navigation 
         currentPage={currentPage} 
         onPageChange={setCurrentPage}
@@ -153,8 +156,9 @@ function App() {
         onSelectAlerta={handleSelectAlerta}
       />
 
-      <Toaster />
-    </div>
+        <Toaster />
+      </div>
+    </FirestoreProvider>
   )
 }
 
