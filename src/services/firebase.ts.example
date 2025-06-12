@@ -1,0 +1,38 @@
+// Firebase configuration - EXAMPLE FILE
+// 
+// INSTRUÇÕES:
+// 1. Copie este arquivo para 'firebase.ts' (remova o .example)
+// 2. Substitua os valores YOUR_* pelas suas credenciais reais do Firebase
+// 3. Você pode obter essas credenciais em: https://console.firebase.google.com
+//    - Vá para Configurações do Projeto > Geral > Seus aplicativos > SDK do Firebase
+//
+// IMPORTANTE: Nunca commite suas credenciais reais no git!
+
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+
+const firebaseConfig = {
+  // Substitua com suas credenciais reais
+  apiKey: "YOUR_API_KEY_HERE",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project-id",
+  storageBucket: "your-project.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID",
+  measurementId: "YOUR_MEASUREMENT_ID" // Opcional
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+
+// Initialize Cloud Firestore and get a reference to the service
+export const db = getFirestore(app);
+export const auth = getAuth(app);
+
+export default app;
+
+// Para o projeto específico mencionado, use:
+// projectId: "a-republica-brasileira"
+// authDomain: "a-republica-brasileira.firebaseapp.com"
+// storageBucket: "a-republica-brasileira.appspot.com"
